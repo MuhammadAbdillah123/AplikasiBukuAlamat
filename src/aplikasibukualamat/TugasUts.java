@@ -4,18 +4,252 @@
  */
 package aplikasibukualamat;
 
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import java.io.File;
+import java.io.PrintWriter;
+import java.sql.*;
 /**
  *
  * @author DELL
  */
 public class TugasUts extends javax.swing.JFrame {
-
+    private Connection conn;
+    private DefaultTableModel modelTabel;
     /**
      * Creates new form TugasUts
      */
     public TugasUts() {
         initComponents();
+        jTable1.setModel(new javax.swing.table.DefaultTableModel(
+        new Object[][]{},
+        new String[]{"ID", "Nama", "Alamat", "Telepon", "Email"}
+    ));
+        modelTabel = (DefaultTableModel) jTable1.getModel(); // Hubungkan model tabel dengan JTable
+        connectDatabase(); // Koneksi ke database
+        createTableIfNotExists(); // Pastikan tabel ada
+        loadContacts(); // Muat data awal dari database
+
     }
+    
+    private void createTableIfNotExists() {
+        try (Statement stmt = conn.createStatement()) {
+            String sql = "CREATE TABLE IF NOT EXISTS contacts (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "name TEXT NOT NULL, " +
+                    "address TEXT NOT NULL, " +
+                    "phone TEXT NOT NULL, " +
+                    "email TEXT)";
+            stmt.execute(sql);
+            System.out.println("Tabel 'contacts' berhasil dibuat atau sudah ada.");
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Gagal membuat tabel: " + e.getMessage());
+        }
+    }
+    
+    private void connectDatabase() {
+        try {
+            String url = "jdbc:sqlite:addressbook.db"; // Lokasi database
+            conn = DriverManager.getConnection(url);
+            System.out.println("Koneksi berhasil!");
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Gagal terhubung ke database: " + e.getMessage());
+        }
+        if (conn != null) {
+            System.out.println("Koneksi ke database berhasil!");
+        } else {
+            System.err.println("Koneksi ke database gagal!");
+        }
+    }
+    
+    private void loadContacts() {
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT * FROM contacts")) {
+
+            modelTabel.setRowCount(0); // Kosongkan tabel sebelum memuat data baru
+            while (rs.next()) {
+                modelTabel.addRow(new Object[]{
+                        rs.getInt("id"),
+                        rs.getString("name"),
+                        rs.getString("address"),
+                        rs.getString("phone"),
+                        rs.getString("email")
+                });
+            }
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Gagal memuat data: " + e.getMessage());
+        }
+    }
+    
+   private void addContact() {
+    if (!validateInput()) return;
+
+    String name = jTextField1.getText();
+    String address = jTextField2.getText();
+    String phone = jTextField3.getText();
+    String email = jTextField4.getText();
+
+    try (PreparedStatement ps = conn.prepareStatement(
+            "INSERT INTO contacts (name, address, phone, email) VALUES (?, ?, ?, ?)")) {
+        ps.setString(1, name);
+        ps.setString(2, address);
+        ps.setString(3, phone);
+        ps.setString(4, email);
+        ps.executeUpdate();
+        loadContacts();
+        JOptionPane.showMessageDialog(this, "Kontak berhasil ditambahkan!");
+        clearInputFields();
+    } catch (SQLException e) {
+        JOptionPane.showMessageDialog(this, "Gagal menambahkan kontak: " + e.getMessage());
+        e.printStackTrace();
+    }
+        jButton1.addActionListener(e -> {
+            System.out.println("Tombol Tambah diklik"); // Debug
+            addContact();
+        });
+
+    }
+    
+    private void editSingleField() {
+    // Pastikan ada baris yang dipilih
+    int selectedRow = jTable1.getSelectedRow();
+    if (selectedRow == -1) {
+        JOptionPane.showMessageDialog(this, "Pilih kontak yang ingin diubah!");
+        return;
+    }
+
+    // Ambil ID kontak dari baris yang dipilih
+    int id = (int) modelTabel.getValueAt(selectedRow, 0);
+
+    // Pilih kolom yang ingin diedit
+    String[] fields = {"Nama", "Alamat", "Telepon", "Email"};
+    String selectedField = (String) JOptionPane.showInputDialog(
+            this,
+            "Pilih field yang ingin diedit:",
+            "Edit Field",
+            JOptionPane.QUESTION_MESSAGE,
+            null,
+            fields,
+            fields[0]
+    );
+
+    if (selectedField == null) {
+        // Jika user membatalkan dialog
+        return;
+    }
+
+    // Masukkan nilai baru untuk field yang dipilih
+    String newValue = JOptionPane.showInputDialog(this, "Masukkan nilai baru untuk " + selectedField + ":");
+    if (newValue == null || newValue.trim().isEmpty()) {
+        JOptionPane.showMessageDialog(this, "Nilai baru tidak boleh kosong!");
+        return;
+    }
+
+    // Tentukan kolom database yang sesuai dengan field yang dipilih
+    String column = null;
+    switch (selectedField) {
+        case "Nama":
+            column = "name";
+            break;
+        case "Alamat":
+            column = "address";
+            break;
+        case "Telepon":
+            column = "phone";
+            break;
+        case "Email":
+            column = "email";
+            break;
+    }
+
+    // Update hanya kolom yang dipilih di database
+    if (column != null) {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "UPDATE contacts SET " + column + " = ? WHERE id = ?")) {
+            ps.setString(1, newValue);
+            ps.setInt(2, id);
+            ps.executeUpdate();
+            loadContacts(); // Perbarui tabel setelah update
+            JOptionPane.showMessageDialog(this, selectedField + " berhasil diubah!");
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Gagal mengubah " + selectedField + ": " + e.getMessage());
+            e.printStackTrace(); // Debugging
+        }
+    }
+}
+
+    
+     private void deleteContact() {
+        int selectedRow = jTable1.getSelectedRow();
+        if (selectedRow == -1) {
+            JOptionPane.showMessageDialog(this, "Pilih kontak yang ingin dihapus!");
+            return;
+        }
+
+        int id = (int) modelTabel.getValueAt(selectedRow, 0);
+
+        try (PreparedStatement ps = conn.prepareStatement("DELETE FROM contacts WHERE id = ?")) {
+            ps.setInt(1, id);
+            ps.executeUpdate();
+            loadContacts();
+            JOptionPane.showMessageDialog(this, "Kontak berhasil dihapus!");
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Gagal menghapus kontak: " + e.getMessage());
+        }
+    }
+     
+     private boolean validateInput() {
+        if (jTextField1.getText().isEmpty() || jTextField2.getText().isEmpty() ||
+                jTextField3.getText().isEmpty() || jTextField4.getText().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Semua field harus diisi!");
+            return false;
+        }
+        return true;
+    }
+    
+    private void saveTableToCSV() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Pilih lokasi untuk menyimpan file CSV");
+        fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CSV Files", "csv"));
+
+        int userSelection = fileChooser.showSaveDialog(this);
+        if (userSelection == JFileChooser.APPROVE_OPTION) {
+            File fileToSave = fileChooser.getSelectedFile();
+            if (!fileToSave.getName().endsWith(".csv")) {
+                fileToSave = new File(fileToSave.getAbsolutePath() + ".csv");
+            }
+
+            try (PrintWriter writer = new PrintWriter(fileToSave)) {
+                for (int i = 0; i < modelTabel.getColumnCount(); i++) {
+                    writer.print(modelTabel.getColumnName(i));
+                    if (i < modelTabel.getColumnCount() - 1) writer.print(",");
+                }
+                writer.println();
+
+                for (int i = 0; i < modelTabel.getRowCount(); i++) {
+                    for (int j = 0; j < modelTabel.getColumnCount(); j++) {
+                        writer.print(modelTabel.getValueAt(i, j));
+                        if (j < modelTabel.getColumnCount() - 1) writer.print(",");
+                    }
+                    writer.println();
+                }
+
+                JOptionPane.showMessageDialog(this, "File CSV berhasil disimpan!");
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this, "Gagal menyimpan file: " + e.getMessage());
+            }
+        }
+    }
+    
+    private void clearInputFields() {
+        jTextField1.setText("");
+        jTextField2.setText("");
+        jTextField3.setText("");
+        jTextField4.setText("");
+    }
+
+    
+    
 
     /**
      * This method is called from within the constructor to initialize the form.
@@ -70,12 +304,32 @@ public class TugasUts extends javax.swing.JFrame {
         jScrollPane1.setViewportView(jTable1);
 
         jButton1.setText("Tambah");
+        jButton1.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton1ActionPerformed(evt);
+            }
+        });
 
         jButton2.setText("Edit");
+        jButton2.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton2ActionPerformed(evt);
+            }
+        });
 
         jButton3.setText("Hapus");
+        jButton3.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton3ActionPerformed(evt);
+            }
+        });
 
         jButton4.setText("Simpan");
+        jButton4.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton4ActionPerformed(evt);
+            }
+        });
 
         javax.swing.GroupLayout jPanel1Layout = new javax.swing.GroupLayout(jPanel1);
         jPanel1.setLayout(jPanel1Layout);
@@ -152,6 +406,22 @@ public class TugasUts extends javax.swing.JFrame {
 
         pack();
     }// </editor-fold>//GEN-END:initComponents
+
+    private void jButton4ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton4ActionPerformed
+        saveTableToCSV();
+    }//GEN-LAST:event_jButton4ActionPerformed
+
+    private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton1ActionPerformed
+        jButton1.addActionListener(e -> addContact());
+    }//GEN-LAST:event_jButton1ActionPerformed
+
+    private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton2ActionPerformed
+       jButton2.addActionListener(e -> editSingleField());
+    }//GEN-LAST:event_jButton2ActionPerformed
+
+    private void jButton3ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton3ActionPerformed
+        jButton3.addActionListener(e -> deleteContact()); // Tombol Hapus
+    }//GEN-LAST:event_jButton3ActionPerformed
 
     /**
      * @param args the command line arguments
